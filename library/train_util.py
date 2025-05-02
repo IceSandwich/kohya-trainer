@@ -65,6 +65,8 @@ from library.lpw_stable_diffusion import StableDiffusionLongPromptWeightingPipel
 import library.model_util as model_util
 import library.huggingface_util as huggingface_util
 
+import library.mep as mep
+
 # from library.attention_processors import FlashAttnProcessor
 # from library.hypernetwork import replace_attentions_for_hypernetwork
 from library.original_unet import UNet2DConditionModel
@@ -1330,42 +1332,60 @@ class DreamBoothDataset(BaseDataset):
                 print(f"not directory: {subset.image_dir}")
                 return [], []
 
-            img_paths = glob_images(subset.image_dir, "*")
-            print(f"found directory {subset.image_dir} contains {len(img_paths)} image files")
-
-            # 画像ファイルごとにプロンプトを読み込み、もしあればそちらを使う
+            img_paths = []
             captions = []
             missing_captions = []
-            for img_path in img_paths:
-                cap_for_img = read_caption(img_path, subset.caption_extension)
-                if cap_for_img is None and subset.class_tokens is None:
-                    print(
-                        f"neither caption file nor class tokens are found. use empty caption for {img_path} / キャプションファイルもclass tokenも見つかりませんでした。空のキャプションを使用します: {img_path}"
-                    )
-                    captions.append("")
-                    missing_captions.append(img_path)
-                else:
-                    if cap_for_img is None:
-                        captions.append(subset.class_tokens)
+
+            metaFilename = os.path.join(subset.image_dir, mep.MetadataFilename)
+            if os.path.exists(metaFilename):
+                print(f"【】】】】 Using MEP metadata file.")
+                if mep.cipher is None:
+                    raise Exception("【】】】】 Cipher is None!!! please pass mep_key")
+                mepJson = mep.ReadJSON(metaFilename)
+
+                for key, item in mepJson.items():
+                    img_paths.append(os.path.join(subset.image_dir, key))
+                    captions.append(item["caption"])
+
+                print(f"found directory {subset.image_dir} contains {len(img_paths)} mep files")
+
+                # try read one image
+                _ = mep.ReadImage(img_paths[0])
+            else:
+                img_paths = glob_images(subset.image_dir, "*")
+                print(f"found directory {subset.image_dir} contains {len(img_paths)} image files")
+
+                # 画像ファイルごとにプロンプトを読み込み、もしあればそちらを使う
+                for img_path in img_paths:
+                    cap_for_img = read_caption(img_path, subset.caption_extension)
+                    if cap_for_img is None and subset.class_tokens is None:
+                        print(
+                            f"neither caption file nor class tokens are found. use empty caption for {img_path} / キャプションファイルもclass tokenも見つかりませんでした。空のキャプションを使用します: {img_path}"
+                        )
+                        captions.append("")
                         missing_captions.append(img_path)
                     else:
-                        captions.append(cap_for_img)
+                        if cap_for_img is None:
+                            captions.append(subset.class_tokens)
+                            missing_captions.append(img_path)
+                        else:
+                            captions.append(cap_for_img)
 
             self.set_tag_frequency(os.path.basename(subset.image_dir), captions)  # タグ頻度を記録
 
             if missing_captions:
-                number_of_missing_captions = len(missing_captions)
-                number_of_missing_captions_to_show = 5
-                remaining_missing_captions = number_of_missing_captions - number_of_missing_captions_to_show
+                    number_of_missing_captions = len(missing_captions)
+                    number_of_missing_captions_to_show = 5
+                    remaining_missing_captions = number_of_missing_captions - number_of_missing_captions_to_show
 
-                print(
-                    f"No caption file found for {number_of_missing_captions} images. Training will continue without captions for these images. If class token exists, it will be used. / {number_of_missing_captions}枚の画像にキャプションファイルが見つかりませんでした。これらの画像についてはキャプションなしで学習を続行します。class tokenが存在する場合はそれを使います。"
-                )
-                for i, missing_caption in enumerate(missing_captions):
-                    if i >= number_of_missing_captions_to_show:
-                        print(missing_caption + f"... and {remaining_missing_captions} more")
-                        break
-                    print(missing_caption)
+                    print(
+                        f"No caption file found for {number_of_missing_captions} images. Training will continue without captions for these images. If class token exists, it will be used. / {number_of_missing_captions}枚の画像にキャプションファイルが見つかりませんでした。これらの画像についてはキャプションなしで学習を続行します。class tokenが存在する場合はそれを使います。"
+                    )
+                    for i, missing_caption in enumerate(missing_captions):
+                        if i >= number_of_missing_captions_to_show:
+                            print(missing_caption + f"... and {remaining_missing_captions} more")
+                            break
+                        print(missing_caption)
             return img_paths, captions
 
         print("prepare images.")
@@ -2075,8 +2095,11 @@ def load_arbitrary_dataset(args, tokenizer) -> MinimalDataset:
     return train_dataset_group
 
 
-def load_image(image_path):
-    image = Image.open(image_path)
+def load_image(image_path: str):
+    if image_path.endswith(mep.FileSuffix):
+        image = mep.ReadImage(image_path)
+    else:
+        image = Image.open(image_path)
     if not image.mode == "RGB":
         image = image.convert("RGB")
     img = np.array(image, np.uint8)

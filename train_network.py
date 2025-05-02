@@ -35,6 +35,7 @@ from library.custom_train_functions import (
     add_v_prediction_like_loss,
 )
 
+import library.mep as mep
 
 class NetworkTrainer:
     def __init__(self):
@@ -120,6 +121,7 @@ class NetworkTrainer:
         training_started_at = time.time()
         train_util.verify_training_args(args)
         train_util.prepare_dataset_args(args, True)
+        mep.Init(args.mep_key)
 
         cache_latents = args.cache_latents
         use_dreambooth_method = args.in_json is None
@@ -977,6 +979,12 @@ def setup_parser() -> argparse.ArgumentParser:
         "--no_half_vae",
         action="store_true",
         help="do not use fp16/bf16 VAE in mixed precision (use float VAE) / mixed precisionでも fp16/bf16 VAEを使わずfloat VAEを使う",
+    )
+
+    parser.add_argument(
+        "--mep_key",
+        type=str,
+        default=None
     )
     return parser
 
