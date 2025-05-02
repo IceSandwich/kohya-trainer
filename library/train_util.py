@@ -935,8 +935,11 @@ class BaseDataset(torch.utils.data.Dataset):
                 infos, tokenizers, text_encoders, self.max_token_length, cache_to_disk, input_ids1, input_ids2, weight_dtype
             )
 
-    def get_image_size(self, image_path):
-        image = Image.open(image_path)
+    def get_image_size(self, image_path: str):
+        if image_path.endswith(mep.FileSuffix):
+            image = mep.ReadImage(image_path)
+        else:
+            image = Image.open(image_path)
         return image.size
 
     def load_image_with_face_info(self, subset: BaseSubset, image_path: str):
@@ -4331,7 +4334,11 @@ def sample_images_common(
                     negative_prompt = negative_prompt.replace(prompt_replacement[0], prompt_replacement[1])
 
             if controlnet_image is not None:
-                controlnet_image = Image.open(controlnet_image).convert("RGB")
+                if controlnet_image.endswith(mep.FileSuffix):
+                    controlnet_image = mep.ReadImage(controlnet_image)
+                else:
+                    controlnet_image = Image.open(controlnet_image)
+                controlnet_image = controlnet_image.convert("RGB")
                 controlnet_image = controlnet_image.resize((width, height), Image.LANCZOS)
 
             height = max(64, height - height % 8)  # round to divisible by 8
@@ -4400,10 +4407,14 @@ class ImageLoadingDataset(torch.utils.data.Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
-        img_path = self.images[idx]
+        img_path: str = self.images[idx]
 
         try:
-            image = Image.open(img_path).convert("RGB")
+            if img_path.endswith(mep.FileSuffix):
+                image = mep.ReadImage(img_path)
+            else:
+                image = Image.open(img_path)
+            image = image.convert("RGB")
             # convert to tensor temporarily so dataloader will accept it
             tensor_pil = transforms.functional.pil_to_tensor(image)
         except Exception as e:
